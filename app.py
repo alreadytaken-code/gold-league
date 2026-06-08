@@ -6,40 +6,22 @@ import pandas as pd
 import requests
 import streamlit as st
 
-st.set_page_config(page_title='Gold League Tracker - Lottomatica', layout='wide')
+st.set_page_config(page_title='FAS League Tracker', layout='wide')
 
-st.title('⚽ Gold League Tracker')
+st.title('FAS League Tracker')
 st.caption(
-    'Archivio risultati Lottomatica Gold League (canale 574) · '
-    'cicli distinti · forecast su blocchi da 6 · ranking GG/NG · reset giornaliero dopo l\'1:00'
+    'Archivio risultati Sisal con giornate Sisal 1-22 senza duplicati, cicli distinti, '
+    'forecast su blocchi da 6, ranking manuale GG/NG e reset giornaliero dopo l\'1:00'
 )
 
-# -------------------------
-# Configurazione
-# -------------------------
 LOCAL_TZ_OFFSET_HOURS = 1
-MATCHES_PER_BLOCK = 6   # Gold League ha 6 partite per giornata
-MAX_GIORNATA = 22         # Campionato virtuale tipicamente 34 giornate
+MATCHES_PER_BLOCK = 6
+MAX_GIORNATA = 22
 REQUEST_TIMEOUT = 30
 
-# Canale 574 = Gold League Lottomatica
-# L'endpoint è lo stesso backend Sisal/Better, solo il canale cambia
-# URL pattern: /getArchivioGareCampionato/{tipo}/{sottoTipo}/{canale}/{data}
-# Sisal FAS League usa: 1/3/6 → Gold League usa probabilmente 1/3/574
-# ⚠️ NOTA: Se l'endpoint non risponde, vedere la sezione "Configurazione API" sotto
-
-API_BASE_URL = "https://www.lottomatica.it/api/sport/virtual/getArchivioGareCampionato"
-API_TIPO = "1"
-API_SOTTO_TIPO = "3"
-API_CANALE = "574"
-API_REFERER = "https://www.lottomatica.it/"
-
-# Mappa nomi squadre Gold League (placeholder - aggiornare con le squadre reali)
 TEAM_NAME_MAP = {
-    'BAR': 'BAR', 'REA': 'REA', 'ATM': 'ATM', 'SEV': 'SEV', 'VAL': 'VAL',
-    'VIL': 'VIL', 'BET': 'BET', 'CEL': 'CEL', 'OSA': 'OSA', 'GRA': 'GRA',
-    'MAL': 'MAL', 'ESP': 'ESP', 'GET': 'GET', 'ALA': 'ALA', 'LEV': 'LEV',
-    'ATH': 'ATH', 'CAD': 'CAD', 'ELC': 'ELC', 'RAY': 'RAY', 'HUE': 'HUE',
+    'GEN': 'GEN', 'NAP': 'NAP', 'UDI': 'UDI', 'MIL': 'MIL', 'INT': 'INT', 'ROM': 'ROM',
+    'FIO': 'FIO', 'LAZ': 'LAZ', 'SAM': 'SAM', 'ATA': 'ATA', 'VER': 'VER', 'JUV': 'JUV'
 }
 
 
@@ -82,17 +64,16 @@ def maybe_reset_daily_after_one() -> bool:
 
 
 # -------------------------
-# Parsing risultati API
+# Storico / API Sisal
 # -------------------------
 def infer_gol_gol(result_list):
     for rr in result_list:
         market = str(rr.get('descrizioneScommessa') or rr.get('modelloScommessa') or '').lower()
         result = str(rr.get('risultato') or rr.get('descrizioneEsito') or '').lower()
-        if 'goal/no goal' in market or 'gol/no gol' in market or 'gg/ng' in market:
-            if '+ goal' in result or result.strip() in ['goal', 'gol', 'gg', 'goal/goal']:
+        if 'goal/no goal' in market or 'gol/no gol' in market:
+            if '+ goal' in result or result.strip() in ['goal', 'gol', 'gg']:
                 return 'GOL'
-            if ('+ no goal' in result or '+ no gol' in result
-                    or result.strip() in ['no goal', 'no gol', 'nogol', 'ng', 'no goal/no goal']):
+            if '+ no goal' in result or '+ no gol' in result or result.strip() in ['no goal', 'no gol', 'nogol', 'ng']:
                 return 'NO GOL'
     return 'N/D'
 
@@ -146,22 +127,17 @@ def normalize_giornata_value(giornata):
     return None
 
 
-# -------------------------
-# Fetch API Lottomatica
-# -------------------------
 def fetch_matches():
     operational_dt = get_operational_datetime()
     date_str = operational_dt.strftime('%d-%m-%Y')
-    api_url = f'{API_BASE_URL}/{API_TIPO}/{API_SOTTO_TIPO}/{API_CANALE}/{date_str}'
-
+    api_url = f'https://betting.sisal.it/api/vrol-api/vrol/archivio/getArchivioGareCampionato/1/3/6/{date_str}'
     response = requests.get(
         api_url,
         timeout=REQUEST_TIMEOUT,
         headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Referer': API_REFERER,
-            'Origin': 'https://www.lottomatica.it',
+            'User-Agent': 'Mozilla/5.0',
+            'Accept': 'application/json',
+            'Referer': 'https://www.sisal.it/'
         }
     )
     response.raise_for_status()
@@ -211,7 +187,6 @@ def fetch_matches():
                         'esito': esito,
                     })
 
-    # Deduplicazione
     dedup = {}
     for m in matches:
         current = dedup.get(m['match_id'])
@@ -283,7 +258,10 @@ def prepare_matches_df(matches):
     df['cycle_id'] = cycle_ids
     df['group_key'] = df['cycle_id'].astype(str) + '-' + df['giornata'].astype(str)
     df['group_label'] = df.apply(lambda r: f"Ciclo {int(r['cycle_id'])} · Giornata {int(r['giornata'])}", axis=1)
-    df['match_nel_blocco'] = df.groupby('group_key', sort=False).cumcount() + 1
+
+    df['match_nel_blocco'] = (
+        df.groupby('group_key', sort=False).cumcount() + 1
+    )
 
     return df.reset_index(drop=True)
 
@@ -354,7 +332,7 @@ def ensure_block_columns(df):
 
 
 # -------------------------
-# Blocchi reali
+# Blocchi reali Sisal
 # -------------------------
 def get_valid_matches_df(df):
     if df is None or df.empty:
@@ -374,7 +352,8 @@ def build_blocks(df):
         return pd.DataFrame(columns=cols)
 
     needed = ['group_key', 'cycle_id', 'giornata', 'group_label', 'sort_timestamp', 'orario', 'esito']
-    if any(c not in valid_df.columns for c in needed):
+    missing = [c for c in needed if c not in valid_df.columns]
+    if missing:
         return pd.DataFrame(columns=cols)
 
     grouped = valid_df.groupby(['group_key', 'cycle_id', 'giornata', 'group_label'], dropna=False).agg(
@@ -460,12 +439,15 @@ def build_forecast(df):
         {'finestra': 'Media pesata finale', 'percentuale_GG': round(weighted_rate * 100, 2)},
     ])
     return {
-        'rate_5': rate_5, 'rate_10': rate_10, 'rate_20': rate_20,
+        'rate_5': rate_5,
+        'rate_10': rate_10,
+        'rate_20': rate_20,
         'weighted_rate': weighted_rate,
         'next_block_expected': next_block_expected,
         'next_block_rounded': next_block_rounded,
         'next_3_blocks_expected': next_3_blocks_expected,
-        'range_min': range_min, 'range_max': range_max,
+        'range_min': range_min,
+        'range_max': range_max,
         'details': details
     }
 
@@ -491,15 +473,15 @@ def build_backtest(df):
     for i in range(1, len(grouped)):
         hist = grouped.iloc[:i].copy()
 
-        def mean_rate(n, h=hist):
-            sub = h.tail(n)
+        def mean_rate(n):
+            sub = hist.tail(n)
             return float(sub['rate'].mean()) if not sub.empty else 0.0
 
-        r5 = mean_rate(5)
-        r10 = mean_rate(10)
-        r20 = mean_rate(20)
-        wr = max(0.0, min(1.0, (0.5 * r5) + (0.3 * r10) + (0.2 * r20)))
-        predicted = round(wr * MATCHES_PER_BLOCK, 2)
+        rate_5 = mean_rate(5)
+        rate_10 = mean_rate(10)
+        rate_20 = mean_rate(20)
+        weighted_rate = max(0.0, min(1.0, (0.5 * rate_5) + (0.3 * rate_10) + (0.2 * rate_20)))
+        predicted = round(weighted_rate * MATCHES_PER_BLOCK, 2)
         actual = int(grouped.iloc[i]['GG'])
         preds.append({
             'group_label': grouped.iloc[i]['group_label'],
@@ -524,8 +506,8 @@ def build_probabilities(df):
     forecast = build_forecast(df)
     p = forecast['weighted_rate']
 
-    def binom_prob_at_least(k, n=MATCHES_PER_BLOCK, prob=0.0):
-        return sum(comb(n, i) * (prob ** i) * ((1 - prob) ** (n - i)) for i in range(k, n + 1))
+    def binom_prob_at_least(k, n=MATCHES_PER_BLOCK, p=0.0):
+        return sum(comb(n, i) * (p ** i) * ((1 - p) ** (n - i)) for i in range(k, n + 1))
 
     p_ge4 = binom_prob_at_least(4, MATCHES_PER_BLOCK, p)
     p_ge5 = binom_prob_at_least(5, MATCHES_PER_BLOCK, p)
@@ -538,11 +520,11 @@ def build_probabilities(df):
         alert_level = 'medium'
 
     if alert_level == 'high':
-        msg = f"Alert alto: forecast {forecast['next_block_expected']} GG su 6, P(4+)= {p_ge4:.1%}, P(6)= {p_eq6:.1%}."
+        msg = f"Alert alto: forecast {forecast['next_block_expected']} GG, P(4+)= {p_ge4:.1%}, P(6)= {p_eq6:.1%}."
     elif alert_level == 'medium':
-        msg = f"Alert medio: forecast {forecast['next_block_expected']} GG su 6, P(4+)= {p_ge4:.1%}."
+        msg = f"Alert medio: forecast {forecast['next_block_expected']} GG, P(4+)= {p_ge4:.1%}."
     else:
-        msg = f"Scenario standard: forecast {forecast['next_block_expected']} GG su 6, P(4+)= {p_ge4:.1%}."
+        msg = f"Scenario standard: forecast {forecast['next_block_expected']} GG, P(4+)= {p_ge4:.1%}."
 
     return {
         'p_ge4': p_ge4,
@@ -566,11 +548,15 @@ def build_trend_visual_df(df):
     blocks = build_blocks(df)
     if blocks.empty:
         return pd.DataFrame(columns=[
-            'group_label', 'GG', '% sul totale', 'gg_ma_3', 'gg_ma_5',
-            'pct_ma_3', 'pct_ma_5', 'state_color', 'state_label', 'cycle_id', 'giornata'
+            'group_label', 'label_chart', 'GG', '% sul totale', 'gg_ma_3', 'gg_ma_5',
+            'pct_ma_3', 'pct_ma_5', 'state_color', 'state_label', 'cycle_id', 'giornata',
+            'orario_inizio'
         ])
 
     chart_df = blocks.copy().sort_values(['cycle_id', 'giornata'], ascending=[True, True], kind='stable').reset_index(drop=True)
+    chart_df['label_chart'] = chart_df.apply(
+        lambda r: f"Giornata {int(r['giornata'])} · {str(r['orario_inizio'])}", axis=1
+    )
     chart_df['gg_ma_3'] = chart_df['GG'].rolling(3, min_periods=1).mean().round(2)
     chart_df['gg_ma_5'] = chart_df['GG'].rolling(5, min_periods=1).mean().round(2)
     chart_df['pct_ma_3'] = chart_df['% sul totale'].rolling(3, min_periods=1).mean().round(2)
@@ -705,9 +691,11 @@ def get_team_trend_5_10(df, team_code):
     trend_score = (0.6 * rate_5) + (0.4 * rate_10)
     return {
         'team': team_code,
-        'rate_5': rate_5, 'rate_10': rate_10,
+        'rate_5': rate_5,
+        'rate_10': rate_10,
         'trend_score': trend_score,
-        'matches_5': matches_5, 'matches_10': matches_10,
+        'matches_5': matches_5,
+        'matches_10': matches_10,
     }
 
 
@@ -863,149 +851,124 @@ def build_manual_summary(pred_df, expected_gg_total, gg_slots):
     }
 
 
-# ============================
-# UI PRINCIPALE
-# ============================
-
-# Sidebar: configurazione API
-with st.sidebar:
-    st.header('⚙️ Configurazione API')
-    st.caption(
-        'Se l\'endpoint automatico non funziona, puoi personalizzarlo. '
-        'Recupera l\'URL dalle DevTools del browser (F12 → Network) su lottomatica.it/scommesse/virtuali/canale/574/1'
-    )
-    custom_base = st.text_input('Base URL API', value=API_BASE_URL)
-    custom_tipo = st.text_input('Tipo', value=API_TIPO)
-    custom_sotto = st.text_input('SottoTipo', value=API_SOTTO_TIPO)
-    custom_canale = st.text_input('Canale (Gold League)', value=API_CANALE)
-    custom_referer = st.text_input('Referer', value=API_REFERER)
-
-    if custom_base != API_BASE_URL:
-        API_BASE_URL = custom_base
-    if custom_tipo != API_TIPO:
-        API_TIPO = custom_tipo
-    if custom_sotto != API_SOTTO_TIPO:
-        API_SOTTO_TIPO = custom_sotto
-    if custom_canale != API_CANALE:
-        API_CANALE = custom_canale
-    if custom_referer != API_REFERER:
-        API_REFERER = custom_referer
-
-    st.divider()
-    st.markdown(f'**URL costruito:**')
-    st.code(f'{API_BASE_URL}/{API_TIPO}/{API_SOTTO_TIPO}/{API_CANALE}/{{data}}')
-
-    st.divider()
-    st.info(
-        '**Gold League** ha 10 partite per giornata.\n\n'
-        'I blocchi sono da 6 match per giornata.'
-    )
-
-# Session state init
+# -------------------------
+# UI STORICO PRINCIPALE
+# -------------------------
 if 'active_data_day' not in st.session_state:
     st.session_state['active_data_day'] = get_operational_datetime().date().isoformat()
 
-api_day_used = st.session_state.get('api_day_used', '-')
-
-col_btn, col_info = st.columns([1, 3])
-with col_btn:
-    if st.button('🔄 Aggiorna risultati', type='primary'):
-        did_reset = maybe_reset_daily_after_one()
-        try:
-            matches_fetched, api_day = fetch_matches()
-            st.session_state['matches'] = matches_fetched
-            st.session_state['last_update'] = local_now().strftime('%d-%m-%Y %H:%M:%S')
-            st.session_state['active_data_day'] = get_operational_datetime().date().isoformat()
-            st.session_state['api_day_used'] = api_day
-            if did_reset:
-                st.success(st.session_state.get('reset_notice', 'Reset giornaliero eseguito.'))
-            st.success(f'Partite trovate: {len(matches_fetched)}')
-        except Exception as e:
-            st.error(f'Errore API: {e}')
-            st.warning(
-                'Se l\'errore persiste, apri lottomatica.it/scommesse/virtuali/canale/574/1 '
-                'e verifica l\'endpoint nelle DevTools (F12 → Network), poi aggiornalo nella sidebar.'
-            )
-
-with col_info:
-    st.caption(
-        f"Ultimo aggiornamento: {st.session_state.get('last_update', '-')} | "
-        f"Giorno dati attivo: {st.session_state.get('active_data_day', '-')} | "
-        f"Data API: {api_day_used} | Partite in sessione: {len(st.session_state.get('matches', []))}"
-    )
+if st.button('Aggiorna risultati', type='primary'):
+    did_reset = maybe_reset_daily_after_one()
+    try:
+        matches, api_day = fetch_matches()
+        st.session_state['matches'] = matches
+        st.session_state['last_update'] = local_now().strftime('%d-%m-%Y %H:%M:%S')
+        st.session_state['active_data_day'] = get_operational_datetime().date().isoformat()
+        st.session_state['api_day_used'] = api_day
+        if did_reset:
+            st.success(st.session_state.get('reset_notice', 'Reset giornaliero eseguito.'))
+        st.success(f'Partite trovate: {len(matches)}')
+    except Exception as e:
+        st.error(f'Errore API: {e}')
 
 matches = st.session_state.get('matches', [])
+last_update = st.session_state.get('last_update', '-')
+api_day_used = st.session_state.get('api_day_used', get_operational_datetime().strftime('%d-%m-%Y'))
+
 df = prepare_matches_df(matches)
 
 if not df.empty:
-    # ---- METRICHE PRINCIPALI ----
-    st.subheader('📊 Metriche principali')
+    st.markdown(f'**Ultimo aggiornamento (locale):** {last_update}')
+    st.caption(
+        f"Giorno dati attivo: {st.session_state.get('active_data_day')} | "
+        f"Data API usata: {api_day_used}"
+    )
+
+    unique_blocks = df['group_key'].nunique() if 'group_key' in df.columns else 0
+    duplicate_rows = int(len(matches) - df['match_id'].nunique()) if ('match_id' in df.columns and matches) else 0
+    latest_block_size = 0
+    if 'group_key' in df.columns and not df.empty:
+        tmp_sizes = df.sort_values('sort_timestamp', ascending=False).groupby('group_key').size()
+        latest_block_size = int(tmp_sizes.iloc[0]) if not tmp_sizes.empty else 0
+
+    s1, s2, s3 = st.columns(3)
+    s1.metric('Partite uniche caricate', int(df['match_id'].nunique()) if 'match_id' in df.columns else 0)
+    s2.metric('Blocchi distinti rilevati', unique_blocks)
+    s3.metric('Ultimo blocco', f'{latest_block_size}/{MATCHES_PER_BLOCK}')
+    if duplicate_rows > 0:
+        st.warning(f'Deduplica applicata: rimossi {duplicate_rows} duplicati in fase di caricamento.')
+
     trend = build_trend_metrics(df)
+    col1, col2, col3 = st.columns(3)
+    col1.metric('Partite GG ultimi 5 blocchi', trend['last5'], trend['last5'] - trend['prev5'])
+    col2.metric('Partite GG ultimi 10 blocchi', trend['last10'], trend['last10'] - trend['prev10'])
+    col3.metric('% partite GG ultimo blocco', f"{trend['latest_block_pct']}%")
+
+    st.subheader('Previsione prossimi blocchi')
     forecast = build_forecast(df)
+    fc1, fc2, fc3 = st.columns(3)
+    fc1.metric('GG attesi prossimo blocco', forecast['next_block_expected'])
+    fc2.metric('Stima arrotondata prossimo blocco', forecast['next_block_rounded'])
+    fc3.metric('GG attesi prossimi 3 blocchi', forecast['next_3_blocks_expected'])
+    st.caption(f"Range stimato prossimo blocco: {forecast['range_min']} - {forecast['range_max']} GG")
+    st.dataframe(forecast['details'], use_container_width=True, hide_index=True)
+
+    st.subheader('Grafici storico e forecast')
+    trend_chart_df = build_trend_visual_df(df)
+    trend_chart_view = trend_chart_df.copy()
     trend_status = build_trend_status(df)
-
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric('GG ultimi 5 blocchi', trend['last5'], delta=trend['last5'] - trend['prev5'])
-    m2.metric('GG ultimi 10 blocchi', trend['last10'], delta=trend['last10'] - trend['prev10'])
-    m3.metric('Forecast prossima giornata', f"{forecast['next_block_expected']} GG")
-    m4.metric('Range atteso', f"{forecast['range_min']}–{forecast['range_max']} GG")
-    m5.metric('Trend corrente', trend_status['label'])
-    m6.metric('Momentum (GG≥4 consecutivi)', trend_status['momentum'])
-
-    # ---- STATO TREND ----
-    st.subheader('📈 Analisi trend')
-    ts1, ts2, ts3, ts4 = st.columns(4)
-    ts1.metric('Ultimo blocco GG', trend_status['last_gg'], delta=round(trend_status['last_vs_ma5'], 2))
-    ts2.metric('% GG ultimo blocco', f"{trend_status['last_pct']:.1f}%")
-    ts3.metric('MA3 - MA5', f"{trend_status['delta_short_vs_long']:+.2f}")
-    ts4.metric('Serie stress (GG≤3)', trend_status['stress'])
-
-    # ---- GRAFICI TREND ----
-    trend_df = build_trend_visual_df(df)
-    if not trend_df.empty:
-        cfa, cfb = st.columns(2)
-        with cfa:
-            st.markdown('#### GG per blocco + medie mobili')
-            chart_data = trend_df.set_index('group_label')[['GG', 'gg_ma_3', 'gg_ma_5']]
-            st.line_chart(chart_data, height=300, use_container_width=True)
-        with cfb:
-            st.markdown('#### % GG per blocco')
-            chart_pct = trend_df.set_index('group_label')[['% sul totale', 'pct_ma_3', 'pct_ma_5']]
-            st.line_chart(chart_pct, height=300, use_container_width=True)
-
-    # ---- FORECAST DETTAGLIO ----
-    st.subheader('🔮 Forecast dettaglio')
-    fc1, fc2, fc3, fc4 = st.columns(4)
-    fc1.metric('Rate 5 blocchi', f"{forecast['rate_5']:.1%}")
-    fc2.metric('Rate 10 blocchi', f"{forecast['rate_10']:.1%}")
-    fc3.metric('Rate 20 blocchi', f"{forecast['rate_20']:.1%}")
-    fc4.metric('GG attesi prossimi 3 blocchi', forecast['next_3_blocks_expected'])
-
-    with st.expander('Dettaglio forecast', expanded=False):
-        st.dataframe(forecast['details'], use_container_width=True, hide_index=True)
-
     forecast_compare_df = build_forecast_compare_df(df)
     heatmap_df = build_heatmap_pivot(df)
-    cfa2, cfb2 = st.columns(2)
-    with cfa2:
-        st.markdown('#### Confronto indicatori forecast')
+
+    t1, t2, t3, t4 = st.columns(4)
+    t1.metric('Stato trend', trend_status['label'])
+    t2.metric('Delta MA3 vs MA5', trend_status['delta_short_vs_long'])
+    t3.metric('Momento 4+ GG', trend_status['momentum'])
+    t4.metric('Stress <=2 GG', trend_status['stress'])
+    st.caption(
+        f"Ultimo blocco: {trend_status['last_gg']} GG ({trend_status['last_pct']:.1f}%) | "
+        f"Scostamento vs MA5: {trend_status['last_vs_ma5']}"
+    )
+
+    st.markdown('#### GG per blocco con medie mobili')
+    if not trend_chart_view.empty:
+        gg_chart = trend_chart_view[['label_chart', 'GG', 'gg_ma_3', 'gg_ma_5']].copy()
+        gg_chart['GG <=2'] = gg_chart['GG'].apply(lambda x: x if x <= 2 else None)
+        gg_chart['GG =3'] = gg_chart['GG'].apply(lambda x: x if x == 3 else None)
+        gg_chart['GG >3'] = gg_chart['GG'].apply(lambda x: x if x > 3 else None)
+        gg_chart = gg_chart.set_index('label_chart')
+        st.bar_chart(gg_chart[['GG <=2', 'GG =3', 'GG >3']].clip(lower=0, upper=6), height=460, use_container_width=True)
+        st.line_chart(gg_chart[['gg_ma_3', 'gg_ma_5']].clip(lower=0, upper=6), height=320, use_container_width=True)
+        st.caption('Asse logico 0-6: 6 è il massimo numero di GG possibili nel blocco. Etichette: Giornata + orario del blocco.')
+    else:
+        st.info('Nessun dato disponibile.')
+
+    st.markdown('#### Percentuale GG per blocco con smoothing')
+    if not trend_chart_view.empty:
+        pct_chart = trend_chart_view[['label_chart', '% sul totale', 'pct_ma_3', 'pct_ma_5']].copy().set_index('label_chart')
+        st.line_chart(pct_chart[['% sul totale', 'pct_ma_3', 'pct_ma_5']], height=420, use_container_width=True)
+        st.caption('Vista completa. La linea % sul totale mostra la qualità del blocco: sopra 50% sei in equilibrio positivo, sopra 60% hai spinta forte.')
+    else:
+        st.info('Nessun dato disponibile.')
+
+    cfa, cfb = st.columns(2)
+    with cfa:
+        st.markdown('#### Confronto rapido forecast')
         if not forecast_compare_df.empty:
             st.bar_chart(forecast_compare_df.set_index('metrica')[['valore']], height=320, use_container_width=True)
         else:
             st.info('Nessun dato disponibile.')
-    with cfb2:
+    with cfb:
         st.markdown('#### Heatmap GG per ciclo/giornata')
         if not heatmap_df.empty:
             st.dataframe(heatmap_df, use_container_width=True)
-            st.caption('Valori più alti = più GG in quella giornata del ciclo.')
+            st.caption('Lettura heatmap: valori più alti = più GG in quella giornata del ciclo.')
         else:
             st.info('Nessun dato disponibile.')
 
-    # ---- BACKTEST E PROBABILITÀ ----
-    st.subheader('🧮 Backtest e probabilità')
+    st.subheader('Backtest e probabilità')
     backtest = build_backtest(df)
     prob = build_probabilities(df)
-
     bt1, bt2, bt3 = st.columns(3)
     bt1.metric('MAE ultimi 10 blocchi', backtest['mae_10'])
     bt2.metric('MAE ultimi 20 blocchi', backtest['mae_20'])
@@ -1026,8 +989,7 @@ if not df.empty:
     with st.expander('Dettaglio backtest', expanded=False):
         st.dataframe(backtest['table'], use_container_width=True, hide_index=True)
 
-    # ---- BLOCCHI 10/10 ----
-    st.subheader('🏆 Blocchi con 6 GG su 6')
+    st.subheader('Blocchi con 6 GG su 6')
     all_gg_stats = build_all_gg_stats(df)
     col4, col5 = st.columns(2)
     col4.metric('Totale blocchi 6 su 6', all_gg_stats['total_all_gg_blocks'])
@@ -1036,8 +998,7 @@ if not df.empty:
     with st.expander('Dettaglio blocchi 6 GG su 6', expanded=False):
         st.dataframe(all_gg_stats['blocks_table'], use_container_width=True, hide_index=True)
 
-    # ---- STORICO GIORNATE ----
-    with st.expander('📅 Partite giornata per giornata', expanded=False):
+    with st.expander('Partite giorno per giorno', expanded=False):
         storico_df = ensure_block_columns(df)[[
             'cycle_id', 'giornata', 'group_label', 'match_nel_blocco', 'orario',
             'codice_avvenimento', 'descrizione_avventimento', 'esito', 'group_key', 'sort_timestamp'
@@ -1054,31 +1015,24 @@ if not df.empty:
         if ordered_labels:
             for label in ordered_labels:
                 blocco_g = storico_df[storico_df['group_label'] == label].copy()
-                blocco_g = blocco_g.sort_values(
-                    ['match_nel_blocco', 'orario', 'codice_avvenimento'],
-                    ascending=[True, True, True], kind='stable'
-                ).reset_index(drop=True)
+                blocco_g = blocco_g.sort_values(['match_nel_blocco', 'orario', 'codice_avvenimento'], ascending=[True, True, True], kind='stable').reset_index(drop=True)
                 gg_count = int((blocco_g['esito'] == 'GOL').sum())
                 ng_count = int((blocco_g['esito'] == 'NO GOL').sum())
                 giornata_value = int(blocco_g['giornata'].iloc[0]) if not blocco_g.empty else 0
                 ciclo_value = int(blocco_g['cycle_id'].iloc[0]) if not blocco_g.empty else 0
                 with st.expander(
-                    f'Giornata {giornata_value} · Ciclo {ciclo_value} · '
-                    f'Partite {len(blocco_g)} · GG {gg_count} · NG {ng_count}',
+                    f'Giornata {giornata_value} · Ciclo {ciclo_value} · Partite {len(blocco_g)} · GG {gg_count} · NG {ng_count}',
                     expanded=False
                 ):
                     st.dataframe(
-                        blocco_g[[
-                            'match_nel_blocco', 'orario', 'giornata',
-                            'codice_avvenimento', 'descrizione_avventimento', 'esito'
-                        ]].rename(columns={'match_nel_blocco': 'n_match'}),
+                        blocco_g[['match_nel_blocco', 'orario', 'giornata', 'codice_avvenimento', 'descrizione_avventimento', 'esito']].rename(columns={'match_nel_blocco': 'n_match'}),
                         use_container_width=True,
                         hide_index=True
                     )
         else:
             st.info('Nessun blocco disponibile.')
 
-    st.subheader('📋 Blocchi Gold League distinti')
+    st.subheader('Blocchi Sisal distinti')
     st.dataframe(build_blocks(df), use_container_width=True, hide_index=True)
 
 else:
@@ -1092,29 +1046,18 @@ else:
     )
 
 
-# ============================
+# -------------------------
 # UI PREDICT FINALE TOP-N
-# ============================
+# -------------------------
 st.divider()
-st.subheader('🎯 Predict finale GG / NG con logica Top-N')
+st.subheader('Predict finale GG / NG con logica Top-N')
 st.caption('Formato input: NomePartita quotaGG rankCasa rankTrasferta')
-st.caption('Esempio: BAR REA 1.82 1 2  (Gold League ha 10 partite → inserisci tutte e 10)')
+st.caption('Esempio: INT ROM 1.97 7 9')
 
 raw_text = st.text_area(
-    'Inserimento manuale partite (10 righe per giornata completa)',
-    height=280,
-    placeholder=(
-        'BAR REA 1.82 1 2\n'
-        'ATM SEV 1.95 3 4\n'
-        'VAL VIL 2.10 5 6\n'
-        'BET CEL 1.90 7 8\n'
-        'OSA GRA 2.20 9 10\n'
-        'MAL ESP 2.05 11 12\n'
-        'GET ALA 2.15 13 14\n'
-        'LEV ATH 1.88 15 16\n'
-        'CAD ELC 2.30 17 18\n'
-        'RAY HUE 2.00 19 20'
-    )
+    'Inserimento manuale partite',
+    height=220,
+    placeholder='GEN NAP 1.98 10 4\nUDI MIL 1.96 2 12\nINT ROM 1.97 7 9'
 )
 
 parsed_df = parse_text_lines(raw_text) if raw_text.strip() else pd.DataFrame(
@@ -1153,16 +1096,18 @@ else:
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown('#### ✅ Match previsti GG')
-        for m in gg_list:
-            st.write(f'- {m}')
-        if not gg_list:
+        st.markdown('#### Match previsti GG')
+        if gg_list:
+            for m in gg_list:
+                st.write(f'- {m}')
+        else:
             st.write('Nessun match previsto GG')
     with c2:
-        st.markdown('#### ❌ Match previsti NG')
-        for m in ng_list:
-            st.write(f'- {m}')
-        if not ng_list:
+        st.markdown('#### Match previsti NG')
+        if ng_list:
+            for m in ng_list:
+                st.write(f'- {m}')
+        else:
             st.write('Nessun match previsto NG')
 
     st.markdown('### Tabella tecnica completa')
@@ -1195,12 +1140,12 @@ else:
             st.info('Nessuna predict disponibile.')
 
     with st.expander('Formula predict usata', expanded=False):
-        st.write(f'Blocco Gold League: {MATCHES_PER_BLOCK} partite per giornata (stesso formato Sisal FAS League).')
         st.write('Forecast generale prossimo blocco: 50% ultimi 5 blocchi + 30% ultimi 10 blocchi + 20% ultimi 20 blocchi.')
-        st.write('I blocchi mantengono la giornata originale da 1 a 34.')
-        st.write('Se la sequenza 1-34 riparte, viene creato un nuovo ciclo distinto.')
-        st.write('Trend squadra = 60% rate ultime 5 giornate + 40% rate ultime 10 giornate.')
+        st.write('I blocchi mantengono la giornata Sisal originale da 1 a 22.')
+        st.write('Se la sequenza 1-22 riparte, viene creato un nuovo ciclo distinto per evitare di fondere due giornate omonime.')
+        st.write('Deduplica applicata solo sui match identici, non sulle giornate omonime di cicli diversi.')
+        st.write('Trend squadra = 60% rate ultime 5 giornate/blocchi + 40% rate ultime 10 giornate/blocchi.')
         st.write('Trend match = media trend squadra casa e trasferta.')
         st.write('Score finale = 50% trend match + 25% trend globale + 20% probabilità mercato + 5% bonus classifica.')
         st.write('GG attesi totali = somma degli score finali delle partite inserite.')
-        st.write('Predict finale = Top-N del ranking, dove N = numero arrotondato di GG attesi totali.')
+        st.write('Predict finale = Top-N del ranking, dove N è il numero arrotondato di GG attesi totali.')
