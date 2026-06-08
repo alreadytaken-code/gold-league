@@ -5,6 +5,7 @@ from math import comb
 import pandas as pd
 import requests
 import streamlit as st
+import plotly.graph_objects as go
 
 st.set_page_config(page_title='FAS League Tracker', layout='wide')
 
@@ -936,10 +937,18 @@ if not df.empty:
         gg_chart['GG <=2'] = gg_chart['GG'].apply(lambda x: x if x <= 2 else None)
         gg_chart['GG =3'] = gg_chart['GG'].apply(lambda x: x if x == 3 else None)
         gg_chart['GG >3'] = gg_chart['GG'].apply(lambda x: x if x > 3 else None)
-        gg_chart = gg_chart.set_index('label_chart')
-        st.bar_chart(gg_chart[['GG <=2', 'GG =3', 'GG >3']].clip(lower=0, upper=6), height=460, use_container_width=True)
-        st.line_chart(gg_chart[['gg_ma_3', 'gg_ma_5']].clip(lower=0, upper=6), height=320, use_container_width=True)
-        st.caption('Asse logico 0-6: 6 è il massimo numero di GG possibili nel blocco. Etichette: Giornata + orario del blocco.')
+
+        fig = go.Figure()
+        fig.add_bar(x=gg_chart['label_chart'], y=gg_chart['GG <=2'], name='GG <=2', marker_color='#dc2626')
+        fig.add_bar(x=gg_chart['label_chart'], y=gg_chart['GG =3'], name='GG =3', marker_color='#eab308')
+        fig.add_bar(x=gg_chart['label_chart'], y=gg_chart['GG >3'], name='GG >3', marker_color='#16a34a')
+        fig.add_scatter(x=gg_chart['label_chart'], y=gg_chart['gg_ma_3'], mode='lines', name='gg_ma_3', line=dict(color='#7dd3fc', width=2))
+        fig.add_scatter(x=gg_chart['label_chart'], y=gg_chart['gg_ma_5'], mode='lines', name='gg_ma_5', line=dict(color='#38bdf8', width=3))
+        fig.update_layout(barmode='overlay', height=520, xaxis_title='Giornata + orario', yaxis_title='GG', legend_title='Serie')
+        fig.update_yaxes(range=[0, 6], dtick=1)
+        fig.update_xaxes(tickangle=-90)
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption('Asse Y fisso 0-6. Etichette solo Giornata + orario. Colori: rosso <=2, giallo =3, verde >3.')
     else:
         st.info('Nessun dato disponibile.')
 
