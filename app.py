@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title='FAS League Tracker', layout='wide')
 
 st.title('FAS League Tracker')
+st.caption('VERSIONE CODICE: 2026-06-09 22:00 - label_chart_fix')
 st.caption(
     'Archivio risultati Sisal con giornate Sisal 1-22 senza duplicati, cicli distinti, '
     'forecast su blocchi da 6, ranking manuale GG/NG e reset giornaliero dopo l\'1:00'
@@ -555,8 +556,9 @@ def build_trend_visual_df(df):
         ])
 
     chart_df = blocks.copy().sort_values(['cycle_id', 'giornata'], ascending=[True, True], kind='stable').reset_index(drop=True)
+    chart_df['orario_inizio'] = chart_df['orario_inizio'].fillna('').astype(str).str[:5]
     chart_df['label_chart'] = chart_df.apply(
-        lambda r: f"Giornata {int(r['giornata'])} · {str(r['orario_inizio'])}", axis=1
+        lambda r: f"Giornata {int(r['giornata'])} · {r['orario_inizio'] if r['orario_inizio'] else '--:--'}", axis=1
     )
     chart_df['gg_ma_3'] = chart_df['GG'].rolling(3, min_periods=1).mean().round(2)
     chart_df['gg_ma_5'] = chart_df['GG'].rolling(5, min_periods=1).mean().round(2)
@@ -945,6 +947,7 @@ if not df.empty:
         fig.add_scatter(x=gg_chart['label_chart'], y=gg_chart['gg_ma_3'], mode='lines', name='gg_ma_3', line=dict(color='#7dd3fc', width=2))
         fig.add_scatter(x=gg_chart['label_chart'], y=gg_chart['gg_ma_5'], mode='lines', name='gg_ma_5', line=dict(color='#38bdf8', width=3))
         fig.update_layout(barmode='overlay', height=520, xaxis_title='Giornata + orario', yaxis_title='GG', legend_title='Serie')
+        fig.update_xaxes(type='category', categoryorder='array', categoryarray=gg_chart['label_chart'].tolist())
         fig.update_yaxes(range=[0, 6], dtick=1)
         fig.update_xaxes(tickangle=-90)
         st.plotly_chart(fig, use_container_width=True)
