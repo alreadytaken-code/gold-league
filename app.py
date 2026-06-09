@@ -649,6 +649,20 @@ def build_heatmap_pivot(df):
     return pivot
 
 
+def build_orario_gg_table(df):
+    blocks = build_blocks(df)
+    if blocks.empty:
+        return pd.DataFrame(columns=['giornata', 'orario', 'GG', 'NO_GOL', 'partite', '%GG'])
+    out = blocks[['giornata', 'orario_inizio', 'GG', 'NO_GOL', 'partite', '% sul totale']].copy()
+    out = out.rename(columns={
+        'orario_inizio': 'orario',
+        '% sul totale': '%GG'
+    })
+    out['orario'] = out['orario'].fillna('').astype(str).str[:5]
+    out = out.sort_values(['giornata', 'orario'], ascending=[True, True], kind='stable').reset_index(drop=True)
+    return out
+
+
 # -------------------------
 # Predict Top-N
 # -------------------------
@@ -977,6 +991,14 @@ if not df.empty:
             st.caption('Lettura heatmap: valori più alti = più GG in quella giornata del ciclo.')
         else:
             st.info('Nessun dato disponibile.')
+
+    st.markdown('#### Tabella orario e GG per giornata')
+    orario_gg_df = build_orario_gg_table(df)
+    if not orario_gg_df.empty:
+        st.dataframe(orario_gg_df, use_container_width=True, hide_index=True)
+        st.caption("Questa tabella mostra per ogni giornata l'orario del blocco e quanti GG sono usciti in quel blocco.")
+    else:
+        st.info('Nessun dato disponibile.')
 
     st.subheader('Backtest e probabilità')
     backtest = build_backtest(df)
