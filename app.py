@@ -13,7 +13,7 @@ import streamlit as st
 st.set_page_config(page_title='FAS League Tracker', layout='wide')
 
 st.title('FAS League Tracker SNAI')
-st.caption('VERSIONE CODICE: 2026-06-13 14:12 - snai fastfail debug')
+st.caption('VERSIONE CODICE: 2026-06-13 14:16 - snai manual json')
 st.caption('Storico Sisal, forecast blocchi, heatmap, ranking manuale, export, storico pronostici, ROI e bankroll tracker.')
 
 LOCAL_TZ_OFFSET_HOURS = 1
@@ -113,26 +113,7 @@ def normalize_giornata_value(giornata):
     return None
 
 
-def fetch_matches_snai():
-    url = 'https://betting-snai.flutterseatech.it/api/vrol-api/vrol/palinsesto/1/championships/2600302038/8127'
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Origin': 'https://www.snai.it',
-        'Referer': 'https://www.snai.it/',
-        'Connection': 'keep-alive',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-    }
-    session = build_retry_session()
-    response = session.get(url, timeout=(SNAI_CONNECT_TIMEOUT, SNAI_READ_TIMEOUT), headers=headers, stream=False)
-    response.raise_for_status()
-    content_type = response.headers.get('Content-Type', '')
-    if 'application/json' not in content_type.lower() and 'text/json' not in content_type.lower():
-        raise RuntimeError(f'Content-Type inatteso: {content_type}')
-    data = response.json()
-
+def parse_snai_json_payload(data):
     matches = []
     api_day = local_now().strftime('%d-%m-%Y')
 
@@ -194,11 +175,20 @@ def fetch_matches_snai():
                 walk(item)
 
     walk(data)
-
     dedup = {}
     for m in matches:
         dedup[m['match_id']] = m
     return list(dedup.values()), api_day
+
+
+def fetch_matches_snai():
+    st.info('Incolla il JSON SNAI completo copiato dalla risposta Network del browser e poi premi Aggiorna risultati.')
+    default_json = st.session_state.get('snai_json_input', '')
+    payload_text = st.text_area('JSON risposta API SNAI', value=default_json, height=260, key='snai_json_input')
+    if not payload_text.strip():
+        raise RuntimeError('JSON SNAI mancante: incolla la risposta completa della request e riprova.')
+    data = json.loads(payload_text)
+    return parse_snai_json_payload(data)
 
 
 def fetch_matches_sisal_disabled():
