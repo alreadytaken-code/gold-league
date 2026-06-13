@@ -6,18 +6,38 @@ from math import comb
 import pandas as pd
 import plotly.graph_objects as go
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import streamlit as st
 
 st.set_page_config(page_title='FAS League Tracker', layout='wide')
 
 st.title('FAS League Tracker SNAI')
-st.caption('VERSIONE CODICE: 2026-06-13 13:55 - snai base tracker')
+st.caption('VERSIONE CODICE: 2026-06-13 14:05 - snai retry hardened')
 st.caption('Storico Sisal, forecast blocchi, heatmap, ranking manuale, export, storico pronostici, ROI e bankroll tracker.')
 
 LOCAL_TZ_OFFSET_HOURS = 1
 MATCHES_PER_BLOCK = 6
 MAX_GIORNATA = 22
 REQUEST_TIMEOUT = 30
+SNAI_CONNECT_TIMEOUT = 15
+SNAI_READ_TIMEOUT = 60
+
+
+def build_retry_session():
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=1.2,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(['GET'])
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
 
 TEAM_NAME_MAP = {
     'GEN': 'GEN', 'NAP': 'NAP', 'UDI': 'UDI', 'MIL': 'MIL', 'INT': 'INT', 'ROM': 'ROM',
@@ -96,11 +116,17 @@ def normalize_giornata_value(giornata):
 def fetch_matches_snai():
     url = 'https://betting-snai.flutterseatech.it/api/vrol-api/vrol/palinsesto/1/championships/2600302038/8127'
     headers = {
-        'User-Agent': 'Mozilla/5.0',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
-        'Referer': 'https://www.snai.it/'
+        'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Origin': 'https://www.snai.it',
+        'Referer': 'https://www.snai.it/',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
     }
-    response = requests.get(url, timeout=REQUEST_TIMEOUT, headers=headers)
+    session = build_retry_session()
+    response = session.get(url, timeout=(SNAI_CONNECT_TIMEOUT, SNAI_READ_TIMEOUT), headers=headers)
     response.raise_for_status()
     data = response.json()
 
