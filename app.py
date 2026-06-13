@@ -13,7 +13,7 @@ import streamlit as st
 st.set_page_config(page_title='FAS League Tracker', layout='wide')
 
 st.title('FAS League Tracker SNAI')
-st.caption('VERSIONE CODICE: 2026-06-13 14:25 - snai curl auto')
+st.caption('VERSIONE CODICE: 2026-06-13 14:33 - snai curl auto guarded')
 st.caption('Storico Sisal, forecast blocchi, heatmap, ranking manuale, export, storico pronostici, ROI e bankroll tracker.')
 
 LOCAL_TZ_OFFSET_HOURS = 1
@@ -121,9 +121,8 @@ def fetch_matches_snai():
         'origin': 'https://www.snai.it',
         'priority': 'u=1, i',
         'referer': 'https://www.snai.it/',
-        'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
         'sec-ch-ua-mobile': '?1',
-        'sec-ch-ua-platform': '"Android"',
+        'sec-ch-ua-platform': 'Android',
         'sec-fetch-dest': 'empty',
         'sec-fetch-mode': 'cors',
         'sec-fetch-site': 'cross-site',
@@ -135,9 +134,17 @@ def fetch_matches_snai():
     response = session.get(url, timeout=(SNAI_CONNECT_TIMEOUT, SNAI_READ_TIMEOUT), headers=headers, stream=False)
     response.raise_for_status()
     content_type = response.headers.get('Content-Type', '')
+    body_text = response.text.strip()
+    if not body_text:
+        raise RuntimeError('Risposta vuota da SNAI: il cookie o il contesto richiesta non sono più validi.')
     if 'application/json' not in content_type.lower() and 'text/json' not in content_type.lower():
-        raise RuntimeError(f'Content-Type inatteso: {content_type}')
-    data = response.json()
+        snippet = body_text[:300].replace(chr(10), ' ')
+        raise RuntimeError(f'Content-Type inatteso: {content_type} | body: {snippet}')
+    try:
+        data = response.json()
+    except Exception:
+        snippet = body_text[:300].replace(chr(10), ' ')
+        raise RuntimeError(f'JSON non valido o risposta non JSON. Inizio body: {snippet}')
 
     matches = []
     api_day = local_now().strftime('%d-%m-%Y')
