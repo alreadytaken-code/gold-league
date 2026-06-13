@@ -13,28 +13,28 @@ import streamlit as st
 st.set_page_config(page_title='FAS League Tracker', layout='wide')
 
 st.title('FAS League Tracker SNAI')
-st.caption('VERSIONE CODICE: 2026-06-13 14:05 - snai retry hardened')
+st.caption('VERSIONE CODICE: 2026-06-13 14:12 - snai fastfail debug')
 st.caption('Storico Sisal, forecast blocchi, heatmap, ranking manuale, export, storico pronostici, ROI e bankroll tracker.')
 
 LOCAL_TZ_OFFSET_HOURS = 1
 MATCHES_PER_BLOCK = 6
 MAX_GIORNATA = 22
-REQUEST_TIMEOUT = 30
-SNAI_CONNECT_TIMEOUT = 15
-SNAI_READ_TIMEOUT = 60
+REQUEST_TIMEOUT = 15
+SNAI_CONNECT_TIMEOUT = 6
+SNAI_READ_TIMEOUT = 12
 
 
 def build_retry_session():
     session = requests.Session()
     retry = Retry(
-        total=3,
-        connect=3,
-        read=3,
-        backoff_factor=1.2,
+        total=0,
+        connect=0,
+        read=0,
+        backoff_factor=0,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=frozenset(['GET'])
     )
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=4)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
     return session
@@ -126,8 +126,11 @@ def fetch_matches_snai():
         'Pragma': 'no-cache'
     }
     session = build_retry_session()
-    response = session.get(url, timeout=(SNAI_CONNECT_TIMEOUT, SNAI_READ_TIMEOUT), headers=headers)
+    response = session.get(url, timeout=(SNAI_CONNECT_TIMEOUT, SNAI_READ_TIMEOUT), headers=headers, stream=False)
     response.raise_for_status()
+    content_type = response.headers.get('Content-Type', '')
+    if 'application/json' not in content_type.lower() and 'text/json' not in content_type.lower():
+        raise RuntimeError(f'Content-Type inatteso: {content_type}')
     data = response.json()
 
     matches = []
